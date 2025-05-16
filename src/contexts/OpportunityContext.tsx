@@ -41,6 +41,44 @@ export interface Message {
   content: string;
   read: boolean;
   createdAt: string;
+  senderName?: string;
+  receiverName?: string;
+  senderRole?: string;
+  receiverRole?: string;
+}
+
+interface MessageWithProfiles {
+  id: string;
+  content: string;
+  sender_id: string;
+  receiver_id: string;
+  read: boolean;
+  created_at: string;
+  sender: {
+    name: string;
+    role: string;
+  } | null;
+  receiver: {
+    name: string;
+    role: string;
+  } | null;
+}
+
+interface MessageResponse {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  content: string;
+  read: boolean;
+  created_at: string;
+  sender?: {
+    name: string;
+    role: string;
+  };
+  receiver?: {
+    name: string;
+    role: string;
+  };
 }
 
 interface OpportunityContextType {
@@ -191,29 +229,77 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
     
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      console.log('Fetching messages for user:', user.id);
+      
+      // First fetch messages
+      const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select('*')
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: true });
         
-      if (error) throw error;
-      
-      if (data) {
-        const formattedMessages: Message[] = data.map(msg => ({
+      if (messagesError) {
+        console.error('Error fetching messages:', messagesError);
+        throw messagesError;
+      }
+
+      if (!messagesData || messagesData.length === 0) {
+        console.log('No messages found');
+        setMessages([]);
+        return;
+      }
+
+      // Get unique user IDs from messages
+      const userIds = Array.from(new Set([
+        ...messagesData.map(msg => msg.sender_id),
+        ...messagesData.map(msg => msg.receiver_id)
+      ]));
+
+      console.log('Fetching profiles for users:', userIds);
+
+      // Fetch all profiles in a single query
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, name, role')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+        throw profilesError;
+      }
+
+      // Create a map for quick profile lookups
+      const profilesMap = new Map(
+        profiles?.map(profile => [profile.id, profile]) || []
+      );
+
+      console.log('Profiles map:', Object.fromEntries(profilesMap));
+
+      // Format messages with user information
+      const formattedMessages: Message[] = messagesData.map(msg => {
+        const sender = profilesMap.get(msg.sender_id);
+        const receiver = profilesMap.get(msg.receiver_id);
+        
+        return {
           id: msg.id,
           senderId: msg.sender_id,
           receiverId: msg.receiver_id,
           content: msg.content,
-          read: msg.read,
-          createdAt: msg.created_at
-        }));
-        
-        setMessages(formattedMessages);
-      }
+          read: msg.read || false,
+          createdAt: msg.created_at,
+          senderName: sender?.name || 'Unknown User',
+          receiverName: receiver?.name || 'Unknown User',
+          senderRole: sender?.role || 'unknown',
+          receiverRole: receiver?.role || 'unknown'
+        };
+      });
+      
+      console.log('Formatted messages:', formattedMessages);
+      setMessages(formattedMessages);
     } catch (error) {
       console.error('Error fetching messages:', error);
       toast.error('Failed to load messages');
+      setMessages([]);
     } finally {
       setLoading(false);
     }
@@ -355,18 +441,108 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
   
   // Apply to an opportunity
   const applyToOpportunity = async (opportunityId: string, message: string): Promise<void> => {
-    if (!user || user.role !== "volunteer") {
+    if (!user) {
+      console.error('No user object available');
+      toast.error("You must be logged in to apply");
+      return;
+    }
+
+    if (user.role !== "volunteer") {
+      console.error('Invalid user role:', user.role);
       toast.error("Only volunteers can apply to opportunities");
       return;
     }
 
     const opportunity = opportunities.find(opp => opp.id === opportunityId);
     if (!opportunity) {
+      console.error('Opportunity not found:', opportunityId);
       toast.error("Opportunity not found");
       return;
     }
 
     try {
+      // Get current auth state
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      console.log('Auth state:', {
+        hasUser: !!authData?.user,
+        userId: authData?.user?.id,
+        error: authError
+      });
+
+      if (authError) {
+        console.error('Auth error:', authError);
+        toast.error("Authentication error. Please log in again.");
+        return;
+      }
+
+      if (!authData?.user) {
+        console.error('No authenticated user found');
+        toast.error("Please log in again to continue");
+        return;
+      }
+
+      // Verify session is active
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('Session state:', {
+        hasSession: !!session,
+        sessionUser: session?.user?.id,
+        error: sessionError
+      });
+
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        toast.error("Session error. Please log in again.");
+        return;
+      }
+
+      if (!session) {
+        console.error('No active session found');
+        toast.error("Your session has expired. Please log in again.");
+        return;
+      }
+
+      // Verify session matches user
+      if (session.user.id !== user.id) {
+        console.error('Session user mismatch:', {
+          sessionUserId: session.user.id,
+          contextUserId: user.id
+        });
+        toast.error("Session mismatch. Please log in again.");
+        return;
+      }
+
+      console.log('Submitting application:', { 
+        opportunityId, 
+        volunteerId: user.id, 
+        message,
+        authStatus: {
+          hasSession: !!session,
+          sessionUser: session.user.id,
+          contextUser: user.id
+        }
+      });
+
+      // First check if an application already exists
+      const { data: existingApp, error: checkError } = await supabase
+        .from('applications')
+        .select('id, status')
+        .eq('opportunity_id', opportunityId)
+        .eq('volunteer_id', user.id)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('Error checking existing application:', checkError);
+        throw checkError;
+      }
+
+      if (existingApp) {
+        console.log('Existing application found:', existingApp);
+        toast.error("You have already applied to this opportunity");
+        return;
+      }
+
+      const now = new Date().toISOString();
+
       // Create application in Supabase
       const { data, error } = await supabase
         .from('applications')
@@ -374,35 +550,77 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
           opportunity_id: opportunityId,
           volunteer_id: user.id,
           status: 'pending',
-          message,
+          message: message,
+          created_at: now
         })
-        .select()
+        .select('*')
         .single();
 
       if (error) {
+        console.error('Error submitting application:', {
+          error,
+          context: {
+            opportunityId,
+            volunteerId: user.id,
+            sessionExists: !!session,
+            userRole: user.role,
+            errorCode: error.code,
+            errorMessage: error.message,
+            errorDetails: error.details
+          }
+        });
         throw error;
       }
 
       if (data) {
+        console.log('Application submitted successfully:', data);
+        
+        // Update local state
         setApplications(prev => [...prev, data as Application]);
         
-        // Create a message for the organization
-        const newMessage: Message = {
-          id: `msg${Date.now()}`,
-          senderId: user.id,
-          receiverId: opportunity.created_by,
-          content: `${user.name} has applied to your "${opportunity.title}" opportunity.`,
-          read: false,
-          createdAt: new Date().toISOString()
-        };
-        
-        setMessages([...messages, newMessage]);
+        // Create a notification for the organization
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: opportunity.created_by,
+            opportunity_id: opportunityId,
+            type: 'application',
+            message: `${user.name || 'A volunteer'} has applied to your opportunity "${opportunity.title}"`,
+            created_at: now,
+            is_read: false
+          });
+
+        if (notificationError) {
+          console.error('Error creating notification:', notificationError);
+          // Log the full error details
+          console.error('Notification error details:', {
+            code: notificationError.code,
+            message: notificationError.message,
+            details: notificationError.details,
+            hint: notificationError.hint
+          });
+        }
         
         toast.success("Application submitted successfully!");
       }
     } catch (error) {
-      console.error('Error submitting application:', error);
-      toast.error("Failed to submit application");
+      console.error('Error in applyToOpportunity:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('auth')) {
+          toast.error("Authentication error. Please log in again.");
+        } else if (error.message.includes('duplicate')) {
+          toast.error("You have already applied to this opportunity");
+        } else if (error.message.includes('foreign key')) {
+          toast.error("Invalid opportunity or volunteer ID");
+        } else {
+          toast.error(error.message);
+        }
+      } else {
+        toast.error("Failed to submit application. Please try again.");
+      }
+      
+      throw error;
     }
   };
   
@@ -414,10 +632,21 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
     }
     
     try {
-      // Generate a timestamp for created_at
       const now = new Date().toISOString();
       
-      // Insert the message with snake_case column names
+      // First fetch the receiver's profile
+      const { data: receiverProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('name, role')
+        .eq('id', receiverId)
+        .single();
+        
+      if (profileError) {
+        console.error('Error fetching receiver profile:', profileError);
+        throw profileError;
+      }
+      
+      // Insert the message
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -427,23 +656,50 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
           read: false,
           created_at: now
         })
-        .select()
+        .select('*')
         .single();
       
       if (error) throw error;
       
       if (data) {
-        // Convert the returned data to our frontend Message format
+        // Format the new message with user information
         const newMessage: Message = {
           id: data.id,
           senderId: data.sender_id,
           receiverId: data.receiver_id,
           content: data.content,
           read: data.read,
-          createdAt: data.created_at
+          createdAt: data.created_at,
+          senderName: user.name,
+          senderRole: user.role,
+          receiverName: receiverProfile.name || 'Unknown User',
+          receiverRole: receiverProfile.role || 'unknown'
         };
         
         setMessages(prev => [...prev, newMessage]);
+
+        // Create a notification for the message recipient
+        const { error: notificationError } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: receiverId,
+            type: 'message',
+            message: `New message from ${user.name || (user.role === 'volunteer' ? 'Volunteer' : 'Organization')}: ${content.substring(0, 100)}${content.length > 100 ? '...' : ''}`,
+            created_at: now,
+            is_read: false
+          });
+
+        if (notificationError) {
+          console.error('Error creating notification:', notificationError);
+          // Log the full error details
+          console.error('Notification error details:', {
+            code: notificationError.code,
+            message: notificationError.message,
+            details: notificationError.details,
+            hint: notificationError.hint
+          });
+        }
+
         toast.success("Message sent successfully!");
       }
     } catch (error: unknown) {
@@ -700,6 +956,8 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
         return;
       }
 
+      const now = new Date().toISOString();
+
       // Update application status in Supabase
       const { error: updateError } = await supabase
         .from('applications')
@@ -715,15 +973,30 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
         app.id === applicationId ? { ...app, status: "accepted" } : app
       ));
 
-      // Send notification message to volunteer with different message based on previous status
-      const wasRejected = application.status === "rejected";
-      const message = wasRejected
-        ? `Great news! The organization has reconsidered your application for "${opportunity.title}" and has now accepted it! They will contact you with next steps.`
-        : `Your application for "${opportunity.title}" has been accepted! The organization will contact you with next steps.`;
+      // Create notification for the volunteer
+      const { error: notificationError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: application.volunteer_id,
+          opportunity_id: application.opportunity_id,
+          type: 'application_accepted',
+          message: `Your application for "${opportunity.title}" has been accepted! The organization will contact you with next steps.`,
+          created_at: now,
+          is_read: false
+        });
 
-      await sendMessage(application.volunteer_id, message);
+      if (notificationError) {
+        console.error('Error creating notification:', notificationError);
+        // Log the full error details
+        console.error('Notification error details:', {
+          code: notificationError.code,
+          message: notificationError.message,
+          details: notificationError.details,
+          hint: notificationError.hint
+        });
+      }
 
-      toast.success(wasRejected ? "Application accepted back successfully!" : "Application accepted successfully!");
+      toast.success("Application accepted successfully!");
     } catch (error) {
       console.error('Error accepting application:', error);
       toast.error("Failed to accept application");
@@ -751,6 +1024,8 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
         return;
       }
 
+      const now = new Date().toISOString();
+
       // Update application status in Supabase
       const { error: updateError } = await supabase
         .from('applications')
@@ -766,11 +1041,28 @@ export const OpportunityProvider: React.FC<{children: ReactNode}> = ({ children 
         app.id === applicationId ? { ...app, status: "rejected" } : app
       ));
 
-      // Send notification message to volunteer
-      await sendMessage(
-        application.volunteer_id,
-        `Your application for "${opportunity.title}" has been reviewed. Unfortunately, the organization has decided not to proceed with your application at this time.`
-      );
+      // Create notification for the volunteer
+      const { error: notificationError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: application.volunteer_id,
+          opportunity_id: application.opportunity_id,
+          type: 'application_rejected',
+          message: `Your application for "${opportunity.title}" has been reviewed. Unfortunately, the organization has decided not to proceed with your application at this time.`,
+          created_at: now,
+          is_read: false
+        });
+
+      if (notificationError) {
+        console.error('Error creating notification:', notificationError);
+        // Log the full error details
+        console.error('Notification error details:', {
+          code: notificationError.code,
+          message: notificationError.message,
+          details: notificationError.details,
+          hint: notificationError.hint
+        });
+      }
 
       toast.success("Application rejected successfully!");
     } catch (error) {

@@ -2,21 +2,83 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
+// Custom storage implementation for Electron
+const electronStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      // @ts-ignore - window.electron is injected by preload script
+      return window.electron.getFromStorage(key);
+    } catch (error) {
+      console.error('Error getting item from storage:', error);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      // @ts-ignore - window.electron is injected by preload script
+      window.electron.setInStorage(key, value);
+    } catch (error) {
+      console.error('Error setting item in storage:', error);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      // @ts-ignore - window.electron is injected by preload script
+      window.electron.removeFromStorage(key);
+    } catch (error) {
+      console.error('Error removing item from storage:', error);
+    }
+  }
+};
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables');
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-  db: {
-    schema: 'public'
-  },
-  global: {
-    headers: { 'x-application-name': 'community-action-board' }
+// Create the Supabase client with enhanced configuration
+export const supabase = createClient<Database>(
+  supabaseUrl,
+  supabaseAnonKey,
+  {
+    auth: {
+      storage: electronStorage,
+      persistSession: true,
+      detectSessionInUrl: false, // Disable URL detection in Electron
+      autoRefreshToken: true,
+      flowType: 'pkce', // Use PKCE flow for better security
+      debug: true // Enable debug mode to see auth-related logs
+    },
+    global: {
+      headers: {
+        'x-application-name': 'community-action-board'
+      }
+    },
+    realtime: {
+      params: {
+        eventsPerSecond: 10
+      }
+    }
+  }
+);
+
+// Debug auth state changes
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth state changed:', event, session?.user?.id);
+});
+
+// Handle storage sync between windows
+window.addEventListener('storage', (event) => {
+  if (event.key?.startsWith('sb-')) {
+    console.log('Auth storage changed, refreshing session');
+    supabase.auth.refreshSession();
   }
 });
+
+// Export for use in other files
+export type { Database };

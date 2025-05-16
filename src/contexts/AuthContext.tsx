@@ -145,13 +145,19 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
 
   const fetchVolunteerProfile = async (userId: string) => {
     try {
+      console.log('Fetching volunteer profile for user:', userId);
       const { data, error } = await supabase
         .from('volunteer_profiles')
-        .select('*')
+        .select('skills, interests, bio, location, availability')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching volunteer profile:', error);
+        return;
+      }
+      
+      console.log('Volunteer profile data:', data);
       
       if (data) {
         setVolunteerProfile({
@@ -161,21 +167,32 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
           location: data.location || '',
           availability: data.availability || []
         });
+      } else {
+        // If no profile exists yet, set to null
+        console.log('No volunteer profile found for user:', userId);
+        setVolunteerProfile(null);
       }
     } catch (error) {
-      console.error('Error fetching volunteer profile:', error);
+      console.error('Error in fetchVolunteerProfile:', error);
+      setVolunteerProfile(null);
     }
   };
 
   const fetchOrganizationProfile = async (userId: string) => {
     try {
+      console.log('Fetching organization profile for user:', userId);
       const { data, error } = await supabase
         .from('organization_profiles')
-        .select('*')
+        .select('description, location, website, causes, logo')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching organization profile:', error);
+        return;
+      }
+      
+      console.log('Organization profile data:', data);
       
       if (data) {
         setOrganizationProfile({
@@ -185,9 +202,13 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
           causes: data.causes || [],
           logo: data.logo || ''
         });
+      } else {
+        console.log('No organization profile found for user:', userId);
+        setOrganizationProfile(null);
       }
     } catch (error) {
-      console.error('Error fetching organization profile:', error);
+      console.error('Error in fetchOrganizationProfile:', error);
+      setOrganizationProfile(null);
     }
   };
 

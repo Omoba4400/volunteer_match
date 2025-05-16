@@ -122,15 +122,7 @@ const Login = () => {
                 Sign up
               </Link>
             </div>
-            <div className="text-xs text-gray-500 text-center mt-4">
-              Demo accounts:
-              <br />
-              Volunteer: volunteer@example.com
-              <br />
-              Organization: org@example.com
-              <br />
-              (Any password works)
-            </div>
+           
           </CardFooter>
         </Card>
       </div>

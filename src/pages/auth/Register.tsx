@@ -30,15 +30,33 @@ const Register = () => {
       setIsSubmitting(false);
       return;
     }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long");
+      setIsSubmitting(false);
+      return;
+    }
     
     try {
       await register(name, email, password, role);
       navigate(role === "volunteer" ? "/profile/volunteer/create" : "/profile/organization/create");
     } catch (err) {
-      if (err instanceof AuthError || err instanceof PostgrestError) {
+      console.error('Registration error:', err);
+      if (err instanceof AuthError) {
+        // Handle specific auth errors
+        if (err.message.includes('already registered')) {
+          setError("This email is already registered. Please try logging in instead.");
+        } else if (err.message.includes('valid email')) {
+          setError("Please enter a valid email address.");
+        } else if (err.message.includes('password')) {
+          setError("Password must be at least 6 characters long.");
+        } else {
+          setError(err.message);
+        }
+      } else if (err instanceof PostgrestError) {
         setError(err.message);
       } else {
-        setError("Failed to register");
+        setError("Failed to register. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
@@ -88,6 +106,7 @@ const Register = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  minLength={6}
                   disabled={isSubmitting || loading}
                 />
               </div>
@@ -99,6 +118,7 @@ const Register = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
+                  minLength={6}
                   disabled={isSubmitting || loading}
                 />
               </div>
@@ -123,7 +143,16 @@ const Register = () => {
                   </div>
                 </RadioGroup>
               </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {error && (
+                <div className="p-3 rounded-md bg-red-50 border border-red-200">
+                  <p className="text-sm text-red-600">{error}</p>
+                  {error.includes('already registered') && (
+                    <Link to="/login" className="text-sm text-red-600 hover:text-red-800 underline mt-1 block">
+                      Click here to log in
+                    </Link>
+                  )}
+                </div>
+              )}
               <Button 
                 type="submit" 
                 className="w-full bg-volunteer-primary hover:bg-volunteer-primary/90" 

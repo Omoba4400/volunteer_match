@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useOpportunity, Message } from "@/contexts/OpportunityContext";
@@ -11,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 interface Conversation {
   userId: string;
   userName: string;
+  userRole: string;
   lastMessage: string;
   unreadCount: number;
   messages: Message[];
@@ -67,36 +67,44 @@ const Messages = () => {
 
   // Group messages into conversations
   useEffect(() => {
-    if (!user) return;
+    if (!user || !messages.length) {
+      setConversations([]);
+      return;
+    }
     
-    const conversationMap: Record<string, Message[]> = {};
+    console.log('Starting conversation grouping with messages:', messages);
+    const conversationMap = new Map<string, Message[]>();
     
     // Group messages by the other user's ID
     messages.forEach(msg => {
       const otherUserId = msg.senderId === user.id ? msg.receiverId : msg.senderId;
+      const otherUserName = msg.senderId === user.id ? msg.receiverName : msg.senderName;
+      const otherUserRole = msg.senderId === user.id ? msg.receiverRole : msg.senderRole;
       
-      if (!conversationMap[otherUserId]) {
-        conversationMap[otherUserId] = [];
+      if (!conversationMap.has(otherUserId)) {
+        conversationMap.set(otherUserId, []);
       }
       
-      conversationMap[otherUserId].push(msg);
-      
-      // Mark messages as read if they are currently selected
-      if (selectedConversation === otherUserId && msg.receiverId === user.id && !msg.read) {
-        markMessageAsRead(msg.id);
-      }
+      const existingMessages = conversationMap.get(otherUserId) || [];
+      conversationMap.set(otherUserId, [...existingMessages, msg]);
     });
     
     // Convert to conversation objects and sort by most recent
-    const conversationArray = Object.entries(conversationMap).map(([userId, msgs]) => {
+    const conversationArray = Array.from(conversationMap.entries()).map(([userId, msgs]) => {
+      // Sort messages by date
       const sortedMsgs = [...msgs].sort((a, b) => 
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
       
+      const lastMsg = sortedMsgs[sortedMsgs.length - 1];
+      const otherUserName = lastMsg.senderId === user.id ? lastMsg.receiverName : lastMsg.senderName;
+      const otherUserRole = lastMsg.senderId === user.id ? lastMsg.receiverRole : lastMsg.senderRole;
+      
       return {
         userId,
-        userName: userNames[userId] || (userId.startsWith("o") ? "Organization" : "Volunteer"),
-        lastMessage: sortedMsgs[sortedMsgs.length - 1].content,
+        userName: otherUserName,
+        userRole: otherUserRole,
+        lastMessage: lastMsg.content,
         unreadCount: sortedMsgs.filter(m => m.receiverId === user.id && !m.read).length,
         messages: sortedMsgs
       };
@@ -109,8 +117,24 @@ const Messages = () => {
       return bDate - aDate;
     });
     
+    console.log('Final sorted conversations:', conversationArray);
     setConversations(conversationArray);
-  }, [messages, user, selectedConversation, markMessageAsRead, userNames]);
+  }, [messages, user]);
+
+  // Handle message read status
+  useEffect(() => {
+    if (!user || !selectedConversation) return;
+    
+    const conversation = conversations.find(c => c.userId === selectedConversation);
+    if (!conversation) return;
+    
+    // Mark unread messages as read
+    conversation.messages.forEach(msg => {
+      if (msg.receiverId === user.id && !msg.read) {
+        markMessageAsRead(msg.id);
+      }
+    });
+  }, [selectedConversation, conversations, user, markMessageAsRead]);
   
   // Get the currently selected conversation
   const currentConversation = selectedConversation 
@@ -121,25 +145,10 @@ const Messages = () => {
   const handleSendMessage = async () => {
     if (!selectedConversation || !newMessage.trim()) return;
     
-    await sendMessage(selectedConversation, newMessage);
+    await sendMessage(selectedConversation, newMessage.trim());
     setNewMessage("");
   };
   
-  // Handle conversation selection - mark messages as read
-  const handleSelectConversation = (userId: string) => {
-    setSelectedConversation(userId);
-    
-    // Mark all messages from this user as read
-    if (user) {
-      const conversationMessages = conversations.find(c => c.userId === userId)?.messages || [];
-      conversationMessages.forEach(msg => {
-        if (msg.receiverId === user.id && !msg.read) {
-          markMessageAsRead(msg.id);
-        }
-      });
-    }
-  };
-
   if (!user) {
     return (
       <Layout>
@@ -174,18 +183,21 @@ const Messages = () => {
                       className={`flex items-start p-4 border-b cursor-pointer hover:bg-gray-50 transition-colors ${
                         selectedConversation === conversation.userId ? "bg-gray-100" : ""
                       }`}
-                      onClick={() => handleSelectConversation(conversation.userId)}
+                      onClick={() => setSelectedConversation(conversation.userId)}
                     >
                       <div className="flex-grow">
                         <div className="flex justify-between items-baseline">
-                          <h3 className="font-medium">{conversation.userName}</h3>
+                          <div>
+                            <h3 className="font-medium">{conversation.userName}</h3>
+                            <p className="text-xs text-gray-500 capitalize">{conversation.userRole}</p>
+                          </div>
                           {conversation.unreadCount > 0 && (
                             <span className="bg-volunteer-primary text-white rounded-full px-2 py-0.5 text-xs">
                               {conversation.unreadCount}
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600 truncate">{conversation.lastMessage}</p>
+                        <p className="text-sm text-gray-600 truncate mt-1">{conversation.lastMessage}</p>
                       </div>
                     </div>
                   ))
@@ -204,6 +216,7 @@ const Messages = () => {
                   {/* Conversation header */}
                   <div className="p-4 border-b bg-gray-50">
                     <h2 className="font-medium">{currentConversation.userName}</h2>
+                    <p className="text-sm text-gray-500 capitalize">{currentConversation.userRole}</p>
                   </div>
                   
                   {/* Messages */}
@@ -219,14 +232,19 @@ const Messages = () => {
                             : "bg-gray-100"
                         }`}>
                           <p>{msg.content}</p>
-                          <p className={`text-xs mt-1 ${
-                            msg.senderId === user.id ? "text-blue-100" : "text-gray-500"
-                          }`}>
-                            {new Date(msg.createdAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
+                          <div className="flex justify-between items-center mt-1">
+                            <span className={`text-xs ${
+                              msg.senderId === user.id ? "text-blue-100" : "text-gray-500"
+                            }`}>
+                              {new Date(msg.createdAt).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                            {!msg.read && msg.receiverId === msg.senderId && (
+                              <span className="text-xs text-gray-400 ml-2">Unread</span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -250,7 +268,7 @@ const Messages = () => {
                       />
                       <Button 
                         onClick={handleSendMessage}
-                        disabled={!newMessage.trim() || loading}
+                        disabled={!newMessage.trim()}
                         className="bg-volunteer-primary hover:bg-volunteer-primary/90"
                       >
                         Send
@@ -264,7 +282,9 @@ const Messages = () => {
                     <p className="mb-2">Select a conversation to start messaging</p>
                     {conversations.length === 0 && (
                       <p className="text-sm">
-                        You don't have any messages yet. Apply to opportunities to connect with organizations.
+                        {user.role === 'volunteer' 
+                          ? "You don't have any messages yet. Apply to opportunities to connect with organizations."
+                          : "You don't have any messages yet. Accept volunteer applications to start conversations."}
                       </p>
                     )}
                   </div>

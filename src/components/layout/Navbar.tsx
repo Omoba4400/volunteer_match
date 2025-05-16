@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Menu, X } from "lucide-react";
+import { NotificationSystem } from "@/components/NotificationSystem";
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -49,6 +50,7 @@ const Navbar = () => {
                 <Link to="/messages" className="text-gray-700 hover:text-volunteer-primary px-3 py-2 rounded-md">
                   Messages
                 </Link>
+                <NotificationSystem />
                 <Link to="/dashboard" className="flex items-center">
                   <Avatar className="h-8 w-8">
                     <AvatarImage src="" alt={user.name} />
@@ -69,6 +71,7 @@ const Navbar = () => {
 
           {/* Mobile menu button */}
           <div className="flex items-center md:hidden">
+            {user && <NotificationSystem />}
             <button
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               className="inline-flex items-center justify-center p-2 rounded-md text-gray-700 hover:text-volunteer-primary hover:bg-gray-100 focus:outline-none"

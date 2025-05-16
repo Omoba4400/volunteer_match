@@ -24,10 +24,32 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import AcceptedVolunteers from "@/components/opportunities/AcceptedVolunteers";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type OpportunityRow = Database['public']['Tables']['opportunities']['Row'];
 type OpportunityInsert = Database['public']['Tables']['opportunities']['Insert'];
 type Message = Database['public']['Tables']['messages']['Row'];
+
+const AVAILABLE_CAUSES = [
+  "Education",
+  "Environment",
+  "Animal Welfare",
+  "Health",
+  "Homelessness",
+  "Hunger Relief",
+  "Disaster Relief",
+  "Poverty",
+  "Children & Youth",
+  "Seniors",
+  "Veterans",
+  "Disabilities",
+  "Arts & Culture",
+  "Community Development",
+  "Human Rights",
+  "Women's Issues",
+  "LGBTQ+",
+  "Technology"
+];
 
 const OrganizationDashboard = () => {
   const { userApplications, opportunities, messages, createOpportunity, updateOpportunity, deleteOpportunity, acceptApplication, rejectApplication, loading } = useOpportunity();
@@ -250,8 +272,8 @@ const OrganizationDashboard = () => {
                 <Plus className="mr-2 h-4 w-4" /> New Opportunity
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
+            <DialogContent className="max-w-md max-h-[90vh] flex flex-col gap-0 p-0">
+              <DialogHeader className="p-6 pb-2">
                 <DialogTitle>
                   {newOpportunity.id ? 'Edit Opportunity' : 'Create New Volunteer Opportunity'}
                 </DialogTitle>
@@ -259,62 +281,99 @@ const OrganizationDashboard = () => {
                   {newOpportunity.id ? 'Update your volunteering opportunity.' : 'Fill in the details of your volunteering opportunity.'}
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input
-                    id="title"
-                    value={newOpportunity.title || ''}
-                    onChange={(e) => setNewOpportunity(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="e.g., Weekend Food Drive"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={newOpportunity.description || ''}
-                    onChange={(e) => setNewOpportunity(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Describe what volunteers will be doing..."
-                    rows={3}
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
+              <div className="flex-1 overflow-y-auto px-6">
+                <div className="space-y-4 py-4">
                   <div className="space-y-2">
-                    <Label htmlFor="location">Location</Label>
+                    <Label htmlFor="title">Title</Label>
                     <Input
-                      id="location"
-                      value={newOpportunity.location || ''}
-                      onChange={(e) => setNewOpportunity(prev => ({ ...prev, location: e.target.value }))}
-                      placeholder="e.g., City Park"
+                      id="title"
+                      value={newOpportunity.title || ''}
+                      onChange={(e) => setNewOpportunity(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="e.g., Weekend Food Drive"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea
+                      id="description"
+                      value={newOpportunity.description || ''}
+                      onChange={(e) => setNewOpportunity(prev => ({ ...prev, description: e.target.value }))}
+                      placeholder="Describe what volunteers will be doing..."
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="location">Location</Label>
+                      <Input
+                        id="location"
+                        value={newOpportunity.location || ''}
+                        onChange={(e) => setNewOpportunity(prev => ({ ...prev, location: e.target.value }))}
+                        placeholder="e.g., City Park"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="causes">Causes (Select Multiple)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {AVAILABLE_CAUSES.map((cause) => (
+                        <Button
+                          key={cause}
+                          type="button"
+                          variant={newOpportunity.causes?.includes(cause) ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            setNewOpportunity(prev => ({
+                              ...prev,
+                              causes: prev.causes?.includes(cause)
+                                ? prev.causes.filter(c => c !== cause)
+                                : [...(prev.causes || []), cause]
+                            }));
+                          }}
+                        >
+                          {cause}
+                        </Button>
+                      ))}
+                    </div>
+                    {newOpportunity.causes && newOpportunity.causes.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <p className="text-sm text-muted-foreground">Selected causes:</p>
+                        {newOpportunity.causes.map((cause) => (
+                          <Badge key={cause} variant="secondary" className="text-sm">
+                            {cause}
+                            <button
+                              className="ml-1 hover:text-destructive"
+                              onClick={() => {
+                                setNewOpportunity(prev => ({
+                                  ...prev,
+                                  causes: prev.causes?.filter(c => c !== cause) || []
+                                }));
+                              }}
+                            >
+                              ×
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Opportunity Image</Label>
+                    <OpportunityImageUpload 
+                      opportunityId={newOpportunity.id || 'new'}
+                      organizationId={user?.id || ''}
+                      onImageUploaded={handleImageUploaded}
+                      initialImageUrl={newOpportunity.image_url || ''}
+                      initialImagePath={newOpportunity.image_path || ''}
                     />
                   </div>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="causes">Causes</Label>
-                  <Input
-                    id="causes"
-                    value={newOpportunity.causes?.join(", ") || ''}
-                    onChange={handleCauseChange}
-                    placeholder="e.g., Environment, Education, Health"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Opportunity Image</Label>
-                  <OpportunityImageUpload 
-                    opportunityId={newOpportunity.id || 'new'}
-                    organizationId={user?.id || ''}
-                    onImageUploaded={handleImageUploaded}
-                    initialImageUrl={newOpportunity.image_url || ''}
-                    initialImagePath={newOpportunity.image_path || ''}
-                  />
-                </div>
               </div>
-              <DialogFooter>
+              <DialogFooter className="p-6 pt-4">
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
                   Cancel
                 </Button>

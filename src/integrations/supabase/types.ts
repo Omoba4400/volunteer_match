@@ -241,6 +241,49 @@ export type Database = {
           }
         ]
       }
+      notifications: {
+        Row: {
+          id: string
+          user_id: string
+          opportunity_id: string | null
+          type: string
+          message: string
+          is_read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          opportunity_id?: string | null
+          type: string
+          message: string
+          is_read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          opportunity_id?: string | null
+          type?: string
+          message?: string
+          is_read?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            referencedRelation: "opportunities"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
